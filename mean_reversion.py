@@ -1,130 +1,121 @@
-import pandas as pd
+from pathlib import Path
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+
+from metrics import calculate_metrics, format_metrics
 
 
-def calculate_metrics(daily_returns, annual_risk_free_rate=0.04):
-    daily_returns = daily_returns.dropna()
+def run_mean_reversion_strategy(
+    prices_path="prices.csv",
+    lookback=5,
+    top_n=5,
+    rebalance_freq=5,
+    transaction_cost_bps=10,
+    annual_risk_free_rate=0.04,
+    eval_start="2020-01-02",
+    eval_end="2025-12-31",
+    save_fig=True,
+):
+    base_dir = Path(__file__).parent
+    file_path = base_dir / prices_path
 
-    # Total return
-    total_return = (1 + daily_returns).prod() - 1
+    if not file_path.exists():
+        raise FileNotFoundError(f"Prices file not found: {file_path}")
 
-    # CAGR
-    years = len(daily_returns) / 252
-    cagr = (1 + total_return) ** (1 / years) - 1
+    prices = pd.read_csv(file_path, index_col=0, parse_dates=True).sort_index()
 
-    # Annualized volatility
-    volatility = daily_returns.std() * np.sqrt(252)
+    past_returns = prices / prices.shift(lookback) - 1.0
 
-    # Daily risk-free rate
-    daily_rf = (1 + annual_risk_free_rate) ** (1 / 252) - 1
+    ranking = past_returns.rank(axis=1, ascending=True, method="average")
+    selected = (ranking <= top_n) & past_returns.notna()
+    positions = selected.astype(float)
 
-    # Sharpe ratio using excess returns
-    excess_returns = daily_returns - daily_rf
-    sharpe = (
-        excess_returns.mean() / excess_returns.std()
-    ) * np.sqrt(252)
+    row_totals = positions.sum(axis=1).replace(0.0, np.nan)
+    positions = positions.div(row_totals, axis=0)
 
-    # Maximum drawdown, including initial capital
-    cumulative_growth = (1 + daily_returns).cumprod()
-    running_peak = cumulative_growth.cummax().clip(lower=1.0)
-    drawdown = cumulative_growth / running_peak - 1
-    max_drawdown = drawdown.min()
+    rebalance_dates = pd.Series(
+        np.arange(len(prices)) % rebalance_freq == 0,
+        index=prices.index
+    )
+
+    positions.loc[~rebalance_dates, :] = np.nan
+    positions = positions.ffill().shift(1)
+
+    returns = prices.pct_change()
+    eval_mask = (positions.index >= eval_start) & (positions.index <= eval_end)
+    positions_eval = positions.loc[eval_mask].copy()
+    returns_eval = returns.loc[eval_mask].copy()
+
+    gross_returns = (positions_eval * returns_eval).sum(
+        axis=1, min_count=1
+    ).dropna()
+
+    weights = positions_eval.fillna(0.0)
+    previous_weights = weights.shift(1).fillna(0.0)
+    turnover = (weights - previous_weights).abs().sum(axis=1)
+
+    cost_rate = transaction_cost_bps / 10_000.0
+    trading_costs = (turnover * cost_rate).reindex(gross_returns.index).fillna(0.0)
+    net_returns = gross_returns - trading_costs
+
+    # Buy-and-hold benchmark for alpha and beta calculation
+    base_idx = prices.loc[:eval_start].index
+    base_date = base_idx[-2] if len(base_idx) >= 2 else base_idx[-1]
+    bnh_growth = (prices.loc[base_date:eval_end] / prices.loc[base_date]).mean(axis=1)
+    bnh_returns = bnh_growth.pct_change().dropna().loc[eval_start:eval_end]
+
+    metrics_gross = calculate_metrics(
+        gross_returns,
+        annual_risk_free_rate,
+        benchmark_returns=bnh_returns,
+        turnover=turnover,
+    )
+    metrics_net = calculate_metrics(
+        net_returns,
+        annual_risk_free_rate,
+        benchmark_returns=bnh_returns,
+        turnover=turnover,
+    )
+
+    print("\nMean Reversion Performance (2020-2025):")
+    print("\nGross:")
+    print(format_metrics(metrics_gross))
+    print("\nNet (10 bps):")
+    print(format_metrics(metrics_net))
+
+    gross_growth = (1.0 + gross_returns).cumprod()
+    gross_growth = gross_growth / gross_growth.iloc[0]
+
+    net_growth = (1.0 + net_returns).cumprod()
+    net_growth = net_growth / net_growth.iloc[0]
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(gross_growth.index, gross_growth, label="Mean Reversion (Gross)")
+    ax.plot(net_growth.index, net_growth, label="Mean Reversion (Net)", linestyle="--")
+    ax.set_title("Mean Reversion Strategy Growth ($1 Initial Investment)")
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Portfolio Value ($)")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+
+    if save_fig:
+        out_dir = base_dir / "outputs"
+        out_dir.mkdir(exist_ok=True)
+        fig.savefig(out_dir / "mean_reversion.png", dpi=150)
+
+    plt.close(fig)
 
     return {
-        "Total Return": total_return,
-        "CAGR": cagr,
-        "Annualized Volatility": volatility,
-        "Sharpe Ratio": sharpe,
-        "Maximum Drawdown": max_drawdown,
+        "gross_returns": gross_returns,
+        "net_returns": net_returns,
+        "metrics_gross": metrics_gross,
+        "metrics_net": metrics_net,
+        "positions": positions_eval,
+        "turnover": turnover,
     }
 
 
-# Load historical prices
-prices = pd.read_csv("prices.csv", index_col=0, parse_dates=True)
-
-print("Dataset shape:", prices.shape)
-print("First date:", prices.index.min())
-print("Last date:", prices.index.max())
-print("Number of stocks:", prices.shape[1])
-print("Missing prices:", prices.isna().sum().sum())
-print("Duplicate dates:", prices.index.duplicated().sum())
-
-# Calculate daily returns
-returns = prices.pct_change()
-
-# 1. Measure each stock's return over the previous 5 trading days
-lookback = 5
-past_returns = prices / prices.shift(lookback) - 1
-
-# 2. Select the stock with the lowest past return
-ranking = past_returns.rank(axis=1, ascending=True, method="first")
-signals = (ranking == 1).astype(float)
-
-# Keep positions missing until sufficient historical data exists
-signals.loc[past_returns.notna().sum(axis=1) == 0, :] = np.nan
-
-# 3. Rebalance every 5 trading days
-rebalance_dates = pd.Series(
-    np.arange(len(prices)) % 5 == 0,
-    index=prices.index
-)
-
-signals.loc[~rebalance_dates, :] = np.nan
-
-# Carry forward the last selected stock
-positions = signals.ffill()
-
-# Use the signal with a one-day lag
-positions = positions.shift(1)
-
-
-# Diagnostic: distinguish actual position changes from missing values
-position_changes = positions.fillna(0).ne(
-    positions.shift(1).fillna(0)
-).any(axis=1)
-
-print("\nActual position changes:")
-print(position_changes[position_changes].head(15))
-
-print("\nNumber of actual position changes:")
-print(position_changes.sum())
-
-print("\nFirst valid portfolio position:")
-print(positions.dropna(how="all").head())
-
-
-# 4. Calculate gross strategy returns (before costs)
-gross_strategy_returns = (positions * returns).sum(
-    axis=1, min_count=1
-).dropna()
-
-# Calculate portfolio turnover from daily weight changes
-turnover = positions.fillna(0).diff().abs().sum(axis=1)
-
-# Assume 10 basis points per dollar traded
-transaction_cost_bps = 10
-cost_rate = transaction_cost_bps / 10_000
-
-# Calculate trading costs and align them with portfolio returns
-trading_costs = turnover * cost_rate
-trading_costs = trading_costs.reindex(
-    gross_strategy_returns.index
-).fillna(0)
-
-# Net returns after estimated transaction costs
-net_strategy_returns = gross_strategy_returns - trading_costs
-
-# 5. Compare gross and net performance
-for label, daily_returns in [
-    ("Gross (before transaction costs)", gross_strategy_returns),
-    ("Net (after transaction costs)", net_strategy_returns),
-]:
-    print(f"\nMean Reversion Performance — {label}")
-
-    metrics = calculate_metrics(daily_returns)
-
-    for metric, value in metrics.items():
-        if metric == "Sharpe Ratio":
-            print(f"{metric}: {value:.2f}")
-        else:
-            print(f"{metric}: {value:.2%}")
+if __name__ == "__main__":
+    run_mean_reversion_strategy()
