@@ -12,8 +12,8 @@ The primary focus is evaluating gross-to-net alpha decay under realistic executi
 - **Evaluation Window:** January 2, 2020 to December 31, 2025 (1,509 trading days, ~6.0 years). Data from 2019 is ingested as a warm-up window to seed the 147-day rolling lookbacks without truncating the evaluation period.
 - **Data Source:** Split- and dividend-adjusted closing prices downloaded via `yfinance`.
 - **Execution Timing & Indexing:** Signals are computed using closing prices at day $t$, shifted forward by 1 trading day (`positions.shift(1)`), and earn the close-to-close return of day $t+1$ ($\frac{P_{t+1}}{P_t} - 1$). This structure models next-day execution while strictly eliminating same-bar lookahead leakage.
-- **Drawdown Measurement:** Peak-to-trough drawdowns are computed against cumulative growth $C_t = \prod_{i=1}^t (1 + R_i)$. The historical high-watermark is floored at initial capital $1.0$ via `cummax().clip(lower=1.0)` so that drawdown calculations are never anchored below starting equity if an initial loss occurs.
-- **Risk-Free Rate:** A constant $4.0\%$ annualized benchmark rate ($r_{f,\text{daily}} = (1 + 0.04)^{1/252} - 1$) applied across excess return, Sharpe ratio, and CAPM alpha regressions.
+- **Drawdown Measurement:** Peak-to-trough drawdowns are computed against cumulative growth $C_t = \prod_{i=1}^t (1 + R_i)$. The historical high-watermark is floored at initial capital 1.0 via `cummax().clip(lower=1.0)` so that drawdown calculations are never anchored below starting equity if an initial loss occurs.
+- **Risk-Free Rate:** A constant 4.0% annualized benchmark rate ($r_{f,\text{daily}} = (1 + 0.04)^{1/252} - 1$) applied across excess return, Sharpe ratio, and CAPM alpha regressions.
 
 ---
 
@@ -21,21 +21,19 @@ The primary focus is evaluating gross-to-net alpha decay under realistic executi
 
 ### Strategy 1: Cross-Sectional Momentum (126-21)
 - **Economic Rationale:** Captures intermediate-term trend continuation driven by institutional capital flows and earnings underreaction, while skipping the recent 21 trading days (~1 month) to isolate the 6-month drift from short-term reversal effects (following Jegadeesh & Titman).
-- **Signal Definition:**
-  $$\text{Momentum}_{i,t} = \frac{P_{i,t-21}}{P_{i,t-147}} - 1$$
-- **Portfolio Construction:** Cross-sectional ranking across the 50-stock universe; selects the top decile ($\text{top\_n} = 5$, top 10%) with equal weight ($w_{i} = 20\%$).
+- **Signal Definition:** $\text{Momentum}_{i,t} = \frac{P_{i,t-21}}{P_{i,t-147}} - 1$
+- **Portfolio Construction:** Cross-sectional ranking across the 50-stock universe; selects the top decile (`top_n = 5`, top 10%) with equal weight ($w_{i} = 0.20$).
 - **Rebalancing:** Monthly on the final trading day of each month, executed for day $t+1$.
 
 ### Strategy 2: Short-Term Mean Reversion (5-Day)
 - **Economic Rationale:** Exploits weekly overreaction, liquidity shocks, and short-term supply-demand imbalances in single equities, betting on rapid price normalization as liquidity providers absorb order imbalances.
-- **Signal Definition:**
-  $$\text{Reversal}_{i,t} = \frac{P_{i,t}}{P_{i,t-5}} - 1$$
-- **Portfolio Construction:** Cross-sectional ranking across the 50-stock universe; selects the bottom decile ($\text{top\_n} = 5$, most oversold) with equal weight ($w_{i} = 20\%$).
+- **Signal Definition:** $\text{Reversal}_{i,t} = \frac{P_{i,t}}{P_{i,t-5}} - 1$
+- **Portfolio Construction:** Cross-sectional ranking across the 50-stock universe; selects the bottom decile (`top_n = 5`, most oversold) with equal weight ($w_{i} = 0.20$).
 - **Rebalancing:** Periodic every 5 trading days, executed for day $t+1$.
 
 ### Benchmarks
-1. **Buy-and-Hold Equal-Weight (Market Benchmark):** Allocates $1/N = 2\%$ at inception ($2020-01-02$) and lets weights drift unmanaged. Serves as the primary CAPM market benchmark ($R_{m,t}$) with zero rebalancing turnover.
-2. **Daily-Rebalanced Equal-Weight:** Rebalances all 50 stocks back to strict $2\%$ weights daily, tracking intra-day weight divergence and mechanical turnover.
+1. **Buy-and-Hold Equal-Weight (Market Benchmark):** Allocates $w_i = 1/N = 2\%$ at inception (2020-01-02) and lets weights drift unmanaged. Serves as the primary CAPM market benchmark ($R_{m,t}$) with zero rebalancing turnover.
+2. **Daily-Rebalanced Equal-Weight:** Rebalances all 50 stocks back to strict 2% equal weights daily, tracking intra-day weight divergence and mechanical turnover.
 
 ---
 
@@ -61,12 +59,13 @@ Empirical backtest metrics evaluated over the common 2020–2025 period:
 
 ## 4. Turnover & Execution Drag
 
-- **Friction Model:** Linear 10 bps ($0.0010$) cost per dollar traded applied to daily two-sided portfolio weight changes:
+- **Friction Model:** Linear 10 bps (0.0010) cost per dollar traded applied to daily two-sided portfolio weight changes:
+
   $$\text{Trading Cost}_t = 0.0010 \times \sum_{i=1}^N |w_{i,t} - w_{i,t-1}|$$
 
-- **Momentum:** Controlled turnover allows high alpha retention. Monthly rebalancing generates an annual turnover of **858.94%** (~8.6 portfolio replacements per year). Friction drag accounts for only **1.11% CAGR** ($30.72\% \rightarrow 29.61\%$), preserving a net Sharpe of **0.91** and an annualized net alpha of **+7.40%**.
+- **Momentum:** Controlled turnover allows high alpha retention. Monthly rebalancing generates an annual turnover of **858.94%** (~8.6 portfolio replacements per year). Friction drag accounts for only **1.11% CAGR** (30.72% to 29.61%), preserving a net Sharpe of **0.91** and an annualized net alpha of **+7.40%**.
 
-- **Mean Reversion:** High turnover causes catastrophic alpha decay. Rebalancing every 5 trading days produces an annual turnover of **8,866.79%** (~88.7 portfolio turns per year). Transaction costs erode **10.07% in annualized return** ($18.79\% \rightarrow 8.72\%$), dragging net alpha to **-10.21%** and Sharpe to **0.30**. 
+- **Mean Reversion:** High turnover causes catastrophic alpha decay. Rebalancing every 5 trading days produces an annual turnover of **8,866.79%** (~88.7 portfolio turns per year). Transaction costs erode **10.07% in annualized return** (18.79% to 8.72%), dragging net alpha to **-10.21%** and Sharpe to **0.30**. 
   
   The signal demonstrates that short-horizon equity reversal cannot be monetized using aggressive market orders. Capturing this anomaly requires passive limit-order execution, maker fee rebates, or internalization.
 
