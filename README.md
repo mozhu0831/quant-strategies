@@ -1,13 +1,13 @@
 # Quantitative Equity Trading Strategies Research
 
-A quantitative research and backtesting framework developed for evaluation at **Kairosys Capital**. This project explores two systematic equity strategies—**Momentum** and **Short-Term Mean Reversion**—against both daily-rebalanced and buy-and-hold equal-weight benchmarks over the 2020–2025 market cycle across a **50-stock sector-balanced large-cap US universe**.
+An independent quantitative research and backtesting framework exploring two systematic equity strategies—**Momentum** and **Short-Term Mean Reversion**—against both daily-rebalanced and buy-and-hold equal-weight benchmarks over the 2020–2025 market cycle across a **50-stock sector-balanced large-cap US universe**.
 
 ---
 
 ## 1. Project Architecture
 
 ```
-Kairosys/
+quant-strategies/
 │
 ├── metrics.py            # Quantitative performance metrics & drawdown calculation
 ├── download_data.py      # Automated Yahoo Finance download (50 tickers with 2019 warm-up)
