@@ -27,7 +27,7 @@ TICKERS_50 = [
     "PLD",
 ]
 
-
+# Download price data from 2019 to 2025
 def download_price_data(
     tickers=None,
     start_date="2019-01-01",
@@ -57,7 +57,6 @@ def download_price_data(
     prices = prices[sorted(tickers)].copy()
     prices.index.name = "Date"
 
-    # Forward-fill / back-fill minor single-day gaps if any
     prices = prices.ffill().bfill()
 
     base_dir = Path(__file__).parent

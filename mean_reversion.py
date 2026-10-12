@@ -40,6 +40,7 @@ def run_mean_reversion_strategy(
     )
 
     positions.loc[~rebalance_dates, :] = np.nan
+    # 1-day execution lag: signal formed at close t executes for return at t+1
     positions = positions.ffill().shift(1)
 
     returns = prices.pct_change()
@@ -59,7 +60,6 @@ def run_mean_reversion_strategy(
     trading_costs = (turnover * cost_rate).reindex(gross_returns.index).fillna(0.0)
     net_returns = gross_returns - trading_costs
 
-    # Buy-and-hold benchmark for alpha and beta calculation
     base_idx = prices.loc[:eval_start].index
     base_date = base_idx[-2] if len(base_idx) >= 2 else base_idx[-1]
     bnh_growth = (prices.loc[base_date:eval_end] / prices.loc[base_date]).mean(axis=1)

@@ -26,6 +26,7 @@ def run_momentum_strategy(
     prices = pd.read_csv(file_path, index_col=0, parse_dates=True).sort_index()
 
     total_lookback = formation_period + skip_recent
+    # Skip recent 21 days to isolate 6-month momentum from 1-month reversal effect
     momentum = prices.shift(skip_recent) / prices.shift(total_lookback) - 1.0
 
     ranking = momentum.rank(axis=1, ascending=False, method="average")
@@ -40,6 +41,7 @@ def run_momentum_strategy(
     month_end = month.ne(month.shift(-1)) & month.shift(-1).notna()
 
     positions.loc[~month_end, :] = np.nan
+    # 1-day execution lag: signal formed at close t executes for return at t+1
     positions = positions.ffill().shift(1)
 
     returns = prices.pct_change()

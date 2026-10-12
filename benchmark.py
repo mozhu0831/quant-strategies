@@ -5,7 +5,6 @@ import pandas as pd
 
 from metrics import calculate_metrics, format_metrics
 
-
 def run_benchmark(
     prices_path="prices.csv",
     eval_start="2020-01-02",
@@ -28,7 +27,7 @@ def run_benchmark(
     num_stocks = prices.shape[1]
     weights = np.ones(num_stocks) / num_stocks
 
-    # 1. Daily-rebalanced equal-weight benchmark
+    # Daily-rebalanced equal-weight benchmark
     daily_rebal_returns = (returns_eval * weights).sum(
         axis=1, min_count=num_stocks
     ).dropna()
@@ -39,7 +38,7 @@ def run_benchmark(
     drifted_weights = (gross_growth_stocks.div(portfolio_growth, axis=0)) / num_stocks
     daily_turnover = (drifted_weights - (1.0 / num_stocks)).abs().sum(axis=1)
 
-    # 2. Buy-and-hold equal-weight benchmark
+    # Buy-and-hold equal-weight benchmark
     base_idx = prices.loc[:eval_start].index
     base_date = base_idx[-2] if len(base_idx) >= 2 else base_idx[-1]
     bnh_growth = (prices.loc[base_date:eval_end] / prices.loc[base_date]).mean(axis=1)
